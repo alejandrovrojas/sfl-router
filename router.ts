@@ -1,4 +1,5 @@
 // sfl-router
+// 0.1.0
 //
 // dependency-free http route delegation using a trie for segment-based path matching
 // and parameter extraction. fast lookups, no regex compilation. routes are stored
@@ -44,14 +45,14 @@
 type RouteTrie = Partial<Record<RouteMethod, RouteMap>>;
 type RouteMap  = Map<string, RouteNode>;
 type RouteNode = {
-	name:    string;           // segment name or param name for ':' nodes
+	name:      string;           // segment name or param name for ':' nodes
 	handlers?: RouteHandler[];
-	nodes:    RouteMap;
+	nodes:     RouteMap;
 };
 
 export type RoutePath    = string;
 export type RouteMethod  = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'CONNECT' | 'OPTIONS' | 'TRACE';
-export type RouteHandler = (context: RouteContext, next?: () => Promise<Response>) => Promise<Response>;
+export type RouteHandler = (context: RouteContext, next?: RouteHandler) => Promise<Response> | Response;
 export type RouteParams  = Record<string, string>;
 export type RouteCookies = Record<string, string>;
 export type RouteSearch  = Record<string, string>;
@@ -117,6 +118,54 @@ export class Router {
 
 	fallback(handler: RouteHandler): void {
 		this.handlers.fallback = handler;
+	}
+
+	handler = (request: Request): ReturnType<RouteHandler> => {
+		const url = new URL(request.url);
+		const route = this.lookup(request.method as RouteMethod, url.pathname);
+
+		function request_search() {
+			const params = new URLSearchParams(url.search);
+			const result: Record<string, string> = {};
+
+			for (const [key, value] of params.entries()) {
+				result[key] = value;
+			}
+
+			return result;
+		};
+
+		function request_cookies() {
+			const cookie_header = request.headers.get('cookie');
+
+			if (cookie_header) {
+				const cookie_list = cookie_header.split(';');
+				const result: Record<string, string> = {};
+
+				for (const pair of cookie_list) {
+					const [key, value] = pair.trim().split('=');
+					result[key] = value;
+				}
+
+				return result;
+			} else {
+				return {};
+			}
+		};
+
+		const context = {
+			request: request,
+			cookies: request_cookies(),
+			search:  request_search(),
+			params:  route ? route.params : {},
+		};
+
+		if (route && route.handlers && route.handlers.length > 0) {
+			const route_handler = this.nest_handlers(route.handlers);
+			return route_handler(context);
+		}
+
+		return this.handlers.fallback(context);
 	}
 
 	private add_node(method: RouteMethod, path: RoutePath, handlers: RouteHandler[]): void {
@@ -256,59 +305,10 @@ export class Router {
 		});
 	}
 
-	search(method: RouteMethod, path: string) : RouterMatch | null {
+	private lookup(method: RouteMethod, path: string) : RouterMatch | null {
 		const segments = this.parse_path_segments(path);
 		const root = this.trie[method]?.get('/')!;
 		return this.traverse_tree(root, segments);
 	}
-
-	handler(request: Request): Promise<Response> {
-		const url = new URL(request.url);
-		const route = this.search(request.method as RouteMethod, url.pathname);
-
-		// parse query string into key-value pairs
-		function request_search() {
-			const params = new URLSearchParams(url.search);
-			const result: Record<string, string> = {};
-
-			for (const [key, value] of params.entries()) {
-				result[key] = value;
-			}
-
-			return result;
-		};
-
-		// parse cookie header into key-value pairs
-		function request_cookies() {
-			const cookie_header = request.headers.get('cookie');
-
-			if (cookie_header) {
-				const cookie_list = cookie_header.split(';');
-				const result: Record<string, string> = {};
-
-				for (const pair of cookie_list) {
-					const [key, value] = pair.trim().split('=');
-					result[key] = value;
-				}
-
-				return result;
-			} else {
-				return {};
-			}
-		};
-
-		const context = {
-			request: request,
-			cookies: request_cookies(),
-			search:  request_search(),
-			params:  route ? route.params : {},
-		};
-
-		if (route && route.handlers && route.handlers.length > 0) {
-			const route_handler = this.nest_handlers(route.handlers);
-			return route_handler(context);
-		}
-
-		return this.handlers.fallback(context);
-	};
 }
+
