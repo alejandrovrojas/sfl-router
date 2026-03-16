@@ -1,4 +1,5 @@
 sfl-router
+0.1.0
 
 dependency-free http route delegation using a trie for segment-based path matching
 and parameter extraction. fast lookups, no regex compilation. routes are stored
