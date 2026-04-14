@@ -2,13 +2,11 @@
 // 0.1.0
 //
 // dependency-free http route delegation using a trie for segment-based path matching
-// and parameter extraction. fast lookups, no regex compilation. routes are stored
-// as a trie where each path segment becomes a node. static segments match exactly,
-// parameters stored under ':' key, wildcards under '*' key. traversal follows
-// precedence: static > param > wildcard regardless of definition order. path matching
-// is O(k) where k is the number of path segments. no regex compilation or backtracking.
-// nodes stored in js Maps for fast lookups. memory usage scales with number of unique
-// segment combinations.
+// and parameter extraction. no regex compilation. routes are stored as a trie where
+// each path segment becomes a node. traversal precedence is static > param > wildcard
+// regardless of definition order. path matching is O(k) where k is the number of path
+// segments. nodes stored in js maps for fast lookups.
+//
 //
 // USAGE
 //     const router = new Router();
@@ -64,6 +62,7 @@ export type RouterMatch = {
 }
 
 export type RouteContext = {
+	readonly url:     URL;
 	readonly request: Request;
 	readonly params:  RouteParams;
 	readonly search:  RouteSearch;
@@ -73,7 +72,7 @@ export type RouteContext = {
 export class Router {
 	public trie: RouteTrie = {};
 	private handlers: Record<string, RouteHandler> = {
-		fallback: async () => {
+		fallback: () => {
 			return new Response('404: Not found', {
 				status: 404,
 			});
@@ -116,6 +115,13 @@ export class Router {
 		this.add_node('TRACE', path, handlers);
 	}
 
+	respond(status: number, message?: string, headers?: Record<string, string>): Response {
+		return new Response(message, {
+			status: status,
+			headers: headers
+		});
+	}
+
 	fallback(handler: RouteHandler): void {
 		this.handlers.fallback = handler;
 	}
@@ -154,6 +160,7 @@ export class Router {
 		};
 
 		const context = {
+			url:     url,
 			request: request,
 			cookies: request_cookies(),
 			search:  request_search(),
